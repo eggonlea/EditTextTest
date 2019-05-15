@@ -1,0 +1,2 @@
+# EditTextTest
+Testing different InputType
