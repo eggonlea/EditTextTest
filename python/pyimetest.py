@@ -74,8 +74,13 @@ if __name__ == "__main__":
   lines = wavs.splitlines()
   i = 0
   n = len(lines)
+  print('Found {} wav files'.format(n))
   for wav in lines:
-    text = voice_input(wav)
+    try:
+      text = voice_input(wav)
+    except:
+      print('Warning: failed to transcribe {}'.format(wav))
+      text = ''
     key = os.path.splitext(os.path.relpath(wav, CORPUS))[0]
     f.write('{} {}\n'.format(key, text))
     print('#{}/{} {}: [{}]'.format(i, n, key, text))
