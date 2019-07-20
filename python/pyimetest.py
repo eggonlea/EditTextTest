@@ -5,7 +5,7 @@ import subprocess
 from time import sleep
 from uiautomator import device as d
 
-TIMEOUT = 3
+TIMEOUT = 10
 CORPUS = '/sdcard/asr_corpus'
 PROP = 'debug.dsasr.wav'
 DONE = 'done'
@@ -52,7 +52,7 @@ def voice_input(wav=None):
   timeout = 0
   while label.exists and timeout < TIMEOUT:
     status, _ = execute('adb shell getprop {}'.format(PROP), True)
-    if status == DONE:
+    if status.startswith(DONE):
       break
     sleep(1)
     timeout += 1
@@ -60,11 +60,13 @@ def voice_input(wav=None):
   if voice.exists:
     voice.click()
 
+  sleep(1)
   result = edit.text if edit.text else ''
   return result
 
 if __name__ == "__main__":
   adb_root()
+  execute('adb shell setenforce 0')
   screen_on()
   unlock()
   launch('com.example.edittexttest/.MainActivity')

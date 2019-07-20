@@ -1,0 +1,135 @@
+From bcc02ce1fa4acc2e9bd31c6245ea9cd428ef1f0c Mon Sep 17 00:00:00 2001
+From: Li Li <eggonlea@msn.com>
+Date: Fri, 19 Jul 2019 17:48:35 -0700
+Subject: [PATCH] DEBUG: dummy AudioRecord from WAV file
+
+Change-Id: I03334fe5ed711de60ef789b816022f993a26035b
+Signed-off-by: Li Li <eggonlea@msn.com>
+---
+ data/etc/platform.xml                     |  4 ++
+ media/java/android/media/AudioRecord.java | 63 +++++++++++++++++++++++
+ 2 files changed, 67 insertions(+)
+
+diff --git a/data/etc/platform.xml b/data/etc/platform.xml
+index 233f82640a2..5908055e4ed 100644
+--- a/data/etc/platform.xml
++++ b/data/etc/platform.xml
+@@ -34,6 +34,10 @@
+          so it can perform any filesystem (read, write, execute) operations
+          allowed for that group. -->
+ 
++    <permission name="android.permission.WRITE_SETTINGS" >
++        <group gid="sdcard_rw" />
++    </permission>
++
+     <permission name="android.permission.BLUETOOTH_ADMIN" >
+         <group gid="net_bt_admin" />
+     </permission>
+diff --git a/media/java/android/media/AudioRecord.java b/media/java/android/media/AudioRecord.java
+index ce9b07dd0c0..288a41e4904 100644
+--- a/media/java/android/media/AudioRecord.java
++++ b/media/java/android/media/AudioRecord.java
+@@ -37,6 +37,7 @@ import android.os.Message;
+ import android.os.PersistableBundle;
+ import android.os.RemoteException;
+ import android.os.ServiceManager;
++import android.os.SystemProperties;
+ import android.util.ArrayMap;
+ import android.util.Log;
+ import android.util.Pair;
+@@ -47,9 +48,15 @@ import com.android.internal.util.Preconditions;
+ import java.io.IOException;
+ import java.lang.annotation.Retention;
+ import java.lang.annotation.RetentionPolicy;
++import java.lang.Math;
+ import java.lang.ref.WeakReference;
++import java.lang.Thread;
+ import java.nio.ByteBuffer;
++import java.nio.file.Files;
++import java.nio.file.FileSystems;
++import java.nio.file.Path;
+ import java.util.ArrayList;
++import java.util.Arrays;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.concurrent.Executor;
+@@ -265,6 +272,13 @@ public class AudioRecord implements AudioRouting, MicrophoneDirection,
+     private AudioAttributes mAudioAttributes;
+     private boolean mIsSubmixFullVolume = false;
+ 
++    /**
++     * Dummy Wav Input
++     */
++    private static final String ASR_PROP = "debug.dsasr.wav";
++    private byte[] mWavBytes;
++    private int mWavOffset;
++
+     //---------------------------------------------------------
+     // Constructor, Finalize
+     //--------------------
+@@ -414,6 +428,9 @@ public class AudioRecord implements AudioRouting, MicrophoneDirection,
+         mSessionId = session[0];
+ 
+         mState = STATE_INITIALIZED;
++
++        mWavBytes = null;
++        mWavOffset = -1;
+     }
+ 
+     private String getCurrentOpPackageName() {
+@@ -1209,6 +1226,52 @@ public class AudioRecord implements AudioRouting, MicrophoneDirection,
+             return ERROR_BAD_VALUE;
+         }
+ 
++        Log.e(TAG, "AR bytes: off=" + offsetInBytes + " size=" + sizeInBytes);
++        String wavFile = SystemProperties.get(ASR_PROP);
++        Log.e(TAG, "AR wav " + (wavFile == null ? "null" : wavFile));
++        if (wavFile != null && wavFile.endsWith(".wav")) {
++          try {
++            if (mWavBytes == null) {
++              Path path = FileSystems.getDefault().getPath(wavFile);
++              byte[] wavBytes = Files.readAllBytes(path);
++              Log.e(TAG, "AR read " + wavBytes.length + " bytes from " + wavFile);
++              mWavBytes = Arrays.copyOfRange(wavBytes, 44, wavBytes.length);
++              mWavOffset = 0;
++            }
++          } catch (Exception e) {
++            Log.e(TAG, "AR failed to read " + wavFile);
++          }
++
++          if (mWavBytes == null || mWavOffset < 0 || mWavOffset >= mWavBytes.length) {
++            Log.e(TAG, "AR zero");
++            for (int i = 0; i < sizeInBytes; ++i) {
++              audioData[offsetInBytes + i] = 0;
++            }
++          } else {
++            int left = mWavBytes.length - mWavOffset;
++            int cur = Math.min(left, sizeInBytes);
++            for (int i = 0; i < cur; ++i) {
++              audioData[offsetInBytes + i] = mWavBytes[mWavOffset + i];
++            }
++            for (int i = cur; i < sizeInBytes; ++i) {
++              audioData[offsetInBytes + i] = 0;
++            }
++            Log.e(TAG, "AR copied " + cur + " bytes @ " + mWavOffset);
++            mWavOffset += cur;
++          }
++
++          if (mWavBytes == null || mWavOffset < 0 || mWavOffset >= mWavBytes.length) {
++            Log.e(TAG, "AR done");
++            SystemProperties.set(ASR_PROP, "done.wav");
++            try {
++              Thread.sleep(500);
++            } catch (Exception e) {
++              return 0;
++            }
++          }
++          return sizeInBytes;
++        }
++
+         return native_read_in_byte_array(audioData, offsetInBytes, sizeInBytes,
+                 readMode == READ_BLOCKING);
+     }
+-- 
+2.17.1
+
