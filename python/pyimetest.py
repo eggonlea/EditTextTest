@@ -52,15 +52,16 @@ def voice_input(wav=None):
   timeout = 0
   while label.exists and timeout < TIMEOUT:
     status, _ = execute('adb shell getprop {}'.format(PROP), True)
-    if status.startswith(DONE):
+    if status.decode().startswith(DONE):
       break
     sleep(1)
     timeout += 1
 
+  sleep(.5)
   if voice.exists:
     voice.click()
 
-  sleep(1)
+  sleep(2)
   result = edit.text if edit.text else ''
   return result
 
@@ -77,16 +78,21 @@ if __name__ == "__main__":
   i = 0
   n = len(lines)
   print('Found {} wav files'.format(n))
-  for wav in lines:
+  for line in lines:
     try:
+      wav = line.decode()
       text = voice_input(wav)
     except:
       print('Warning: failed to transcribe {}'.format(wav))
       text = ''
-    key = os.path.splitext(os.path.relpath(wav, CORPUS))[0]
-    f.write('{} {}\n'.format(key, text))
-    print('#{}/{} {}: [{}]'.format(i, n, key, text))
-    i += 1
+    try:
+      key = os.path.splitext(os.path.relpath(wav, CORPUS))[0]
+      line = u'{} {}\n'.format(key, text)
+      f.write(line)
+      print(u'#{}/{} {}: [{}]'.format(i, n, key, text))
+      i += 1
+    except:
+      print('Failed to write transcript for WAV {}'.format(wav))
 
   f.close()
   execute('adb shell setprop {} None'.format(PROP))
