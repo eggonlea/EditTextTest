@@ -1,3 +1,4 @@
+import argparse
 import os
 import shlex
 import subprocess
@@ -65,36 +66,52 @@ def voice_input(wav=None):
   result = edit.text if edit.text else ''
   return result
 
+def parse_args():
+  parser = argparse.ArgumentParser(description='Speech To Text')
+  parser.add_argument('--input', required=False, help='Previous dsasr result')
+  return parser.parse_args()
+
 if __name__ == "__main__":
+  args = parse_args()
   adb_root()
   execute('adb shell setenforce 0')
   screen_on()
   unlock()
   launch('com.example.edittexttest/.MainActivity')
 
-  f = open(RESULT, 'w')
+  fout = open(RESULT, 'w')
   wavs, _ = execute('adb shell find {} -name *.wav'.format(CORPUS))
   lines = wavs.splitlines()
+
+  transcripts = {}
+  if args.input is not None:
+    with open(args.input) as fin:
+      cur = dict((line.split(' ', maxsplit=1) for line in fin))
+      transcripts.update(cur)
+  print('Found %d inputs' % len(transcripts))
+
   i = 0
   n = len(lines)
   print('Found {} wav files'.format(n))
   for line in lines:
     try:
-      wav = line.decode()
+      wav = line.decode().strip()
+      key = os.path.splitext(os.path.relpath(wav, CORPUS))[0]
+      if key in transcripts and len(transcripts[key].strip()) > 0:
+        continue
       text = voice_input(wav)
     except:
       print('Warning: failed to transcribe {}'.format(wav))
       text = ''
     try:
-      key = os.path.splitext(os.path.relpath(wav, CORPUS))[0]
       line = u'{} {}\n'.format(key, text)
-      f.write(line)
+      fout.write(line)
       print(u'#{}/{} {}: [{}]'.format(i, n, key, text))
       i += 1
     except:
       print('Failed to write transcript for WAV {}'.format(wav))
 
-  f.close()
+  fout.close()
   execute('adb shell setprop {} None'.format(PROP))
   print('Done')
   d.press.home()
