@@ -1,0 +1,101 @@
+From d5dd73bdb7b7761a7acbab811edf6396dee7def2 Mon Sep 17 00:00:00 2001
+From: Li Li <eggonlea@msn.com>
+Date: Mon, 29 Jul 2019 14:32:55 -0700
+Subject: [PATCH] DEBUG audio hal: dummy wav input for audio record
+
+Change-Id: I38a8d937639c462e34f7320a99685b36b6821ac8
+---
+ hal/audio_hw.c | 46 ++++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 44 insertions(+), 2 deletions(-)
+
+diff --git a/hal/audio_hw.c b/hal/audio_hw.c
+index eb67863b..7662bd4a 100644
+--- a/hal/audio_hw.c
++++ b/hal/audio_hw.c
+@@ -114,6 +114,10 @@ static unsigned int configured_low_latency_capture_period_size =
+ #define MMAP_PERIOD_COUNT_MAX 512
+ #define MMAP_PERIOD_COUNT_DEFAULT (MMAP_PERIOD_COUNT_MAX)
+ 
++#define DEBUG_DSASR_PROP "debug.dsasr.wav"
++#define DEBUG_DSASR_CORPUS "/sdcard/asr_corpus"
++int asr_fd = -1;
++
+ /* This constant enables extended precision handling.
+  * TODO The flag is off until more testing is done.
+  */
+@@ -4548,6 +4552,7 @@ static void in_snd_mon_cb(void * stream, struct str_parms * parms)
+ static ssize_t in_read(struct audio_stream_in *stream, void *buffer,
+                        size_t bytes)
+ {
++    ALOGI("in_read(%zu)", bytes);
+     struct stream_in *in = (struct stream_in *)stream;
+     struct audio_device *adev = in->dev;
+     int i, ret = -1;
+@@ -4558,6 +4563,27 @@ static ssize_t in_read(struct audio_stream_in *stream, void *buffer,
+     const size_t frame_size = audio_stream_in_frame_size(stream);
+     const size_t frames = bytes / frame_size;
+ 
++    if (asr_fd > 0) {
++      ALOGI("Read %zu from dummy wav", bytes);
++      memset(buffer, 0, bytes);
++      ret = read(asr_fd, buffer, bytes);
++      if (ret < bytes) {
++        close(asr_fd);
++        asr_fd = 0;
++        property_set(DEBUG_DSASR_PROP, "done.wav");
++      } else {
++        usleep(5000);
++      }
++      ret = 0;
++      goto exit;
++    } else if (asr_fd == 0) {
++      ALOGI("Zero %zu for dummy wav", bytes);
++      memset(buffer, 0, bytes);
++      usleep(300000);
++      ret = 0;
++      goto exit;
++    }
++
+     if (in->is_st_session) {
+         ALOGVV(" %s: reading on st session bytes=%zu", __func__, bytes);
+         /* Read from sound trigger HAL */
+@@ -5991,10 +6017,21 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
+                                                             devices,
+                                                             flags,
+                                                             source);
+-    ALOGV("%s: enter: format(%#x) sample_rate(%d) channel_mask(%#x) devices(%#x) flags(%#x) source(%#x)",
++    ALOGI("%s: enter: format(%#x) sample_rate(%d) channel_mask(%#x) devices(%#x) flags(%#x) source(%#x)",
+           __func__, config->format, config->sample_rate, config->channel_mask, devices, flags, source);
+     *stream_in = NULL;
+ 
++    char value[PROPERTY_VALUE_MAX];
++    if (property_get(DEBUG_DSASR_PROP, value, NULL) > 0) {
++       if (!strncmp(value, DEBUG_DSASR_CORPUS, strlen(DEBUG_DSASR_CORPUS))) {
++         ALOGI("Detected debug corpus %s", value);
++         asr_fd = open(value, O_RDONLY);
++         ALOGI("Opened debug corpus %s as %d", value, asr_fd);
++         char buffer[44];
++         read(asr_fd, buffer, 44);
++       }
++    }
++
+     if (is_usb_dev && !is_usb_ready(adev, false /* is_playback */)) {
+         return -ENOSYS;
+     }
+@@ -6251,7 +6288,12 @@ static void adev_close_input_stream(struct audio_hw_device *dev __unused,
+                                     struct audio_stream_in *stream)
+ {
+     struct stream_in *in = (struct stream_in *)stream;
+-    ALOGV("%s", __func__);
++    ALOGI("%s", __func__);
++
++    if (asr_fd > 0) {
++      close(asr_fd);
++      asr_fd = -1;
++    }
+ 
+     // must deregister from sndmonitor first to prevent races
+     // between the callback and close_stream
+-- 
+2.17.1
+
